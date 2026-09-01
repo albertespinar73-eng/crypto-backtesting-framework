@@ -1,0 +1,162 @@
+//@version=5
+// DAX40 Asian-Sweep — MSS por cierre + FVG + rango asiático + killzone
+//
+// Indicador propio (no derivado de ningún script de terceros), escrito para
+// verificar visualmente en TradingView la misma lógica mecánica implementada
+// en dax_model/ (Python) — ver docs/STRATEGY_SPEC.md. Pensado para el
+// gráfico de DAX índice en 5 minutos.
+//
+// Reglas implementadas tal cual la especificación:
+//  - Rango asiático: apertura nocturna configurable -> 06:00 CET.
+//  - Killzone: 08:15-10:45 CET (sombreada).
+//  - Swing points HH/HL/LH/LL por fractales (pivotos left/right configurables).
+//  - MSS confirmado SOLO por CIERRE de vela más allá del último HL (short) /
+//    LH (long) previo al barrido de liquidez asiática — una mecha no cuenta.
+//  - FVGs de 3 velas (sin solape vela1/vela3), con sombreado que se apaga
+//    cuando el hueco queda mitigado (precio lo atraviesa por completo).
+//
+// Este script es solo una herramienta VISUAL de verificación para la Fase 0
+// (ver docs/DEPLOYMENT_PLAN.md) — no ejecuta operaciones ni sustituye al
+// motor de detección en dax_model/.
+
+indicator("DAX40 Asian-Sweep — MSS/FVG", overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+grpSession = "Sesión asiática / Killzone"
+asianOpenH  = input.int(23, "Apertura nocturna (hora CET)", minval = 0, maxval = 23, group = grpSession, tooltip = "Pregunta abierta: confirmar hora real con el bróker (docs/OPEN_QUESTIONS.md #1)")
+asianOpenM  = input.int(0, "Apertura nocturna (minuto CET)", minval = 0, maxval = 59, group = grpSession)
+killzoneStart = input.session("0815-1045", "Killzone (HHMM-HHMM, CET)", group = grpSession)
+
+grpStructure = "Estructura / MSS"
+pivotLeft  = input.int(1, "Velas izquierda (pivote)", minval = 1, group = grpStructure)
+pivotRight = input.int(1, "Velas derecha (pivote)", minval = 1, group = grpStructure)
+
+grpFvg = "Fair Value Gaps"
+showFvg      = input.bool(true, "Mostrar FVGs", group = grpFvg)
+fvgFullFillMitigation = input.bool(true, "Mitigación = relleno completo (si no, basta con tocar)", group = grpFvg)
+
+tz = "Europe/Berlin"
+
+// ---------------------------------------------------------------------------
+// Rango asiático (apertura nocturna -> 06:00 CET)
+// ---------------------------------------------------------------------------
+inAsianSession = time(timeframe.period, str.format("{0,number,00}{1,number,00}-0600", asianOpenH, asianOpenM), tz)
+
+var float asianHigh = na
+var float asianLow = na
+var int asianStartBar = na
+
+newAsianSession = not na(inAsianSession) and na(inAsianSession[1])
+if newAsianSession
+    asianHigh := high
+    asianLow := low
+    asianStartBar := bar_index
+else if not na(inAsianSession)
+    asianHigh := math.max(asianHigh, high)
+    asianLow := math.min(asianLow, low)
+
+asianSessionJustEnded = na(inAsianSession) and not na(inAsianSession[1])
+var float sessionAsianHigh = na
+var float sessionAsianLow = na
+var float sessionAsianEq = na
+if asianSessionJustEnded
+    sessionAsianHigh := asianHigh
+    sessionAsianLow := asianLow
+    sessionAsianEq := (asianHigh + asianLow) / 2
+
+plot(sessionAsianHigh, "Asian High", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 1)
+plot(sessionAsianLow, "Asian Low", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 1)
+plot(sessionAsianEq, "Asian EQ", color = color.new(color.gray, 40), style = plot.style_linebr, linewidth = 1)
+
+// ---------------------------------------------------------------------------
+// Killzone (08:15-10:45 CET)
+// ---------------------------------------------------------------------------
+inKillzone = not na(time(timeframe.period, killzoneStart, tz))
+bgcolor(inKillzone ? color.new(color.blue, 92) : na, title = "Killzone")
+
+// ---------------------------------------------------------------------------
+// Swing points (HH/HL/LH/LL) — confirmados con `pivotRight` velas de retraso
+// ---------------------------------------------------------------------------
+ph = ta.pivothigh(high, pivotLeft, pivotRight)
+pl = ta.pivotlow(low, pivotLeft, pivotRight)
+
+var float lastHigh = na
+var float lastLow = na
+var string lastHighKind = na
+var string lastLowKind = na
+
+if not na(ph)
+    kind = na(lastHigh) or ph > lastHigh ? "HH" : "LH"
+    lastHighKind := kind
+    lastHigh := ph
+    label.new(bar_index - pivotRight, ph, kind, style = label.style_label_down, color = color.new(color.teal, 0), textcolor = color.white, size = size.tiny)
+
+if not na(pl)
+    kind = na(lastLow) or pl > lastLow ? "HL" : "LL"
+    lastLowKind := kind
+    lastLow := pl
+    label.new(bar_index - pivotRight, pl, kind, style = label.style_label_up, color = color.new(color.maroon, 0), textcolor = color.white, size = size.tiny)
+
+// nivel de referencia estructural vigente para el MSS (último HL / LH confirmados)
+float refLevelShort = lastLowKind == "HL" ? lastLow : na   // short usa el último HL
+float refLevelLong  = lastHighKind == "LH" ? lastHigh : na // long usa el último LH
+
+// ---------------------------------------------------------------------------
+// Barrido de liquidez asiática + MSS por cierre
+// ---------------------------------------------------------------------------
+var bool sweptHigh = false
+var bool sweptLow = false
+var float refAtSweepShort = na
+var float refAtSweepLong = na
+
+if not na(sessionAsianHigh) and high > sessionAsianHigh and not sweptHigh
+    sweptHigh := true
+    refAtSweepShort := refLevelShort
+    label.new(bar_index, high, "Sweep High", style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white, size = size.small)
+
+if not na(sessionAsianLow) and low < sessionAsianLow and not sweptLow
+    sweptLow := true
+    refAtSweepLong := refLevelLong
+    label.new(bar_index, low, "Sweep Low", style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = size.small)
+
+// Reset de los sweeps al empezar una nueva sesión asiática (nuevo día)
+if newAsianSession
+    sweptHigh := false
+    sweptLow := false
+    refAtSweepShort := na
+    refAtSweepLong := na
+
+var bool mssShortDone = false
+var bool mssLongDone = false
+
+if sweptHigh and not mssShortDone and not na(refAtSweepShort) and close < refAtSweepShort
+    mssShortDone := true
+    label.new(bar_index, close, "MSS ↓ (cierre)", style = label.style_label_up, color = color.new(color.red, 0), textcolor = color.white, size = size.normal)
+
+if sweptLow and not mssLongDone and not na(refAtSweepLong) and close > refAtSweepLong
+    mssLongDone := true
+    label.new(bar_index, close, "MSS ↑ (cierre)", style = label.style_label_down, color = color.new(color.green, 0), textcolor = color.white, size = size.normal)
+
+if newAsianSession
+    mssShortDone := false
+    mssLongDone := false
+
+// ---------------------------------------------------------------------------
+// Fair Value Gaps (3 velas, sin solape vela1/vela3)
+// ---------------------------------------------------------------------------
+if showFvg
+    bearishGap = low[2] > high  // candle1.low > candle3.high (usando barra actual como candle3)
+    bullishGap = high[2] < low  // candle1.high < candle3.low
+
+    if bearishGap
+        box.new(bar_index - 2, low[2], bar_index + 20, high, border_color = color.new(color.red, 60), bgcolor = color.new(color.red, 85), extend = extend.none)
+
+    if bullishGap
+        box.new(bar_index - 2, high[2], bar_index + 20, low, border_color = color.new(color.green, 60), bgcolor = color.new(color.green, 85), extend = extend.none)
+
+// Nota: la mitigación visual (apagar el hueco una vez relleno) y la
+// selección automática del FVG de entrada según la prioridad de
+// docs/STRATEGY_SPEC.md se dejan para verificación manual en esta primera
+// versión del indicador — el motor de decisión real vive en dax_model/.

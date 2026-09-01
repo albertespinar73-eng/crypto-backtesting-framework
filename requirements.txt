@@ -1,0 +1,6 @@
+pytest>=8.0
+
+# Para leer Full Backtest.numbers una vez esté disponible (ver
+# dax_model/backtest_loader.py). OJO: `pip install snappy` instala el
+# paquete equivocado (SnapPy, de topología) y rompe numbers-parser.
+numbers-parser>=4.0

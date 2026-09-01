@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+.DS_Store
+
+# Bases de datos locales de trading (Fase 1+) — nunca commitear datos de cuenta real
+*.sqlite
+*.sqlite3
+db/*.db
+
+# Documentos fuente con datos de la cuenta/estrategia de Albert: se
+# referencian desde docs/ pero no se commitean automáticamente aquí salvo
+# que se decida explícitamente lo contrario.
