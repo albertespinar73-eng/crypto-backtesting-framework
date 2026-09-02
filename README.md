@@ -42,28 +42,35 @@ podido calibrar ya con los documentos que Albert ha subido
 `Asian_Sweep_Paper.pdf`, `DAX40_Statistical_Review.pdf`) y qué sigue
 pendiente de datos de bróker/cuenta que solo él tiene.
 
-## ¿Listo para copiar al EA de MT5?
+## ¿Listo para backtestear/copiar al EA de MT5?
 
-**No.** Tres motivos concretos, no una cautela genérica:
+**Hay un primer borrador para backtest, pero no está listo para real ni
+demo.** Ver [`mql5/DAX40_AsianSweep_EA.mq5`](mql5/DAX40_AsianSweep_EA.mq5) y
+las instrucciones paso a paso en [`mql5/README.md`](mql5/README.md). Tres
+matices importantes:
 
-1. **Es Python, el EA es MQL5.** No hay ninguna traducción automática; la
-   lógica de `dax_model/` habría que reescribirla en MQL5 siguiendo
-   `docs/ARCHITECTURE.md` — todavía no se ha escrito ni una línea de EA.
-2. **No se ha podido verificar contra precio real.** `Full_Backtest.numbers`
-   es un diario de resultados (SL/TP/RR planeados, hora, motivo de cierre),
-   no una serie de velas OHLC — así que no ha sido posible comprobar que
-   `dax_model/detector.py` habría detectado sweeps/MSS/FVG de forma
-   equivalente a como se tomaron las 263 operaciones reales. Eso requiere
-   el histórico real de velas de 5m/15m/1H/4H del DAX40, que todavía no se
-   ha aportado.
-3. **Solo el Modelo Primario está implementado.** Los modelos Alternativo
-   (liquidez interna) y de Continuación siguen sin construir (ver
-   `dax_model/detector.py`, cabecera del módulo).
+1. **Sin compilar.** Este entorno no tiene MetaEditor/compilador MQL5 — el
+   archivo se ha escrito con cuidado (mismo diseño y lógica que
+   `dax_model/`, comprobado a mano) pero necesita compilarse (F7) y
+   probarse en MT5 antes de fiarse de él. Si da errores de compilación,
+   repórtalos para corregirlos.
+2. **No se ha podido verificar contra precio real todavía.**
+   `Full_Backtest.numbers` es un diario de resultados (SL/TP/RR planeados,
+   hora, motivo de cierre), no una serie de velas OHLC — así que ni el EA
+   ni `dax_model/detector.py` se han podido comparar operación a operación
+   contra las 263 reales. Para eso hace falta el histórico real de velas
+   de 5m/15m/1H/4H del DAX40, que el Probador de Estrategias de MT5 sí
+   puede darte directamente (ver `mql5/README.md`).
+3. **Solo el Modelo Primario está implementado**, en ambos lados (Python y
+   MQL5). Los modelos Alternativo (liquidez interna) y de Continuación
+   siguen sin construir.
 
 Los nuevos filtros togglables (1H, SMA100) están **desactivados por
-defecto** precisamente porque son territorio nuevo o en disputa entre los
-propios informes de validación (ver `docs/OPEN_QUESTIONS.md` #11 y #12) —
-pensados para que Albert los compare en backtest, no para ir a producción
+defecto** en ambos lados, precisamente porque son territorio nuevo o en
+disputa entre los propios informes de validación (ver
+`docs/OPEN_QUESTIONS.md` #11 y #12) — pensados para que Albert los compare
+en backtest (el Probador de Estrategias de MT5 puede optimizar estos
+toggles automáticamente, ver `mql5/README.md` §5), no para ir a producción
 tal cual.
 
 ## Estructura del repo
@@ -89,6 +96,9 @@ dax_model/                Motor de detección de setups y riesgo (Python)
   backtest_loader.py                  Loader de Full_Backtest.numbers
 tests/                     Tests unitarios sobre velas sintéticas
 pine/                      Indicador Pine Script v5 (verificación visual)
+mql5/                      EA MQL5 para backtest en MT5 (borrador, sin compilar)
+  DAX40_AsianSweep_EA.mq5   Puerto directo de dax_model/, mismo alcance (solo Modelo Primario)
+  README.md                  Pasos para instalar, compilar y backtestear en el Probador de Estrategias
 db/schema.sql              Esquema SQLite para logging/dashboard (Fase 1+)
 ```
 
@@ -99,19 +109,20 @@ python3 -m pip install -r requirements.txt
 python3 -m pytest tests -q
 ```
 
-## Próximos pasos (no iniciados)
+## Próximos pasos
 
-1. Conseguir histórico real de velas OHLC (5m/15m/1H/4H) del DAX40 para
-   poder verificar `dax_model/detector.py` contra las 263 operaciones
-   reales — `Full_Backtest.numbers` por sí solo no basta (ver arriba).
-2. Resolver con Albert las preguntas #1–#3 y #13 de `docs/OPEN_QUESTIONS.md`
+1. Compilar `mql5/DAX40_AsianSweep_EA.mq5` en MetaEditor y corregir
+   cualquier error de compilación (reportarlo de vuelta).
+2. Backtestear en el Probador de Estrategias de MT5 siguiendo
+   `mql5/README.md` — esto también resuelve el punto anterior de "conseguir
+   histórico real de velas OHLC", porque el propio MT5 lo provee.
+3. Resolver con Albert las preguntas #1–#3 y #13 de `docs/OPEN_QUESTIONS.md`
    (hora de apertura nocturna, bróker/valor del punto, reglas exactas de
    drawdown de la prop firm, si se implementa el hallazgo de los viernes).
-3. Implementar los modelos Alternativo y de Continuación (Sección 2) sobre
+4. Implementar los modelos Alternativo y de Continuación (Sección 2) sobre
    los mismos primitivos, una vez calibrada la definición de "liquidez
-   interna".
-4. Backtestear los toggles nuevos (1H, SMA100) con datos reales antes de
+   interna" — en Python y en el EA.
+5. Backtestear los toggles nuevos (1H, SMA100) con datos reales antes de
    decidir si alguno pasa a activado por defecto.
-5. Escribir el EA en MQL5 (Fase 1) siguiendo `docs/ARCHITECTURE.md`, y
-   desplegarlo en demo — nunca contra la cuenta real sin aprobación
-   explícita de Albert.
+6. Desplegar en demo (Fase 1) siguiendo `docs/DEPLOYMENT_PLAN.md` — nunca
+   contra la cuenta real sin aprobación explícita de Albert.

@@ -59,16 +59,24 @@ y congelada.
 
 ## Estado actual de este repositorio
 
-Fase 0 únicamente: `dax_model/` implementa la detección de setups y el
-motor de riesgo en Python, sobre datos históricos, para verificar la lógica
-contra `Full Backtest.numbers` en cuanto esté disponible (`OPEN_QUESTIONS.md`).
-**No existe todavía ningún EA MQL5 ni conexión a MT4/5** — eso es Fase 1,
-condicionado a:
+`dax_model/` implementa la detección de setups y el motor de riesgo en
+Python. Además, ya existe un **primer borrador** del EA en
+`mql5/DAX40_AsianSweep_EA.mq5` (puerto directo de `dax_model/`, mismo
+alcance: solo Modelo Primario), pero **sin compilar ni probar** — este
+entorno no tiene MetaEditor/compilador MQL5. Esto NO es todavía "Fase 1
+desplegada": es código listo para que Albert lo compile y lo corra en el
+Probador de Estrategias de MT5 (ver `mql5/README.md`), sin conexión a
+ninguna cuenta real ni demo. Sigue condicionado a:
 
-1. Tener los datos de bróker/cuenta confirmados (preguntas #1–#3 de
-   `OPEN_QUESTIONS.md`).
-2. Que la lógica de `dax_model/` esté validada contra el histórico real.
-3. Aprobación explícita de Albert para pasar de Fase 0 a Fase 1 (demo).
+1. Compilar el EA y corregir cualquier error de compilación (reportarlo de
+   vuelta para arreglarlo).
+2. Tener los datos de bróker/cuenta confirmados (preguntas #1–#3 de
+   `OPEN_QUESTIONS.md`) — el offset de zona horaria y el valor del punto
+   son inputs del EA, pero sus valores por defecto son placeholders.
+3. Backtestear el EA en MT5 y comparar el orden de magnitud contra los
+   resultados documentados en `docs/OPEN_QUESTIONS.md`/`RISK_GUARDRAILS.md`.
+4. Aprobación explícita de Albert para pasar a Fase 1 (demo real contra
+   MT4/5, no solo el Probador de Estrategias offline).
 
 ## Riesgos aceptados de esta arquitectura (a validar con Albert)
 
