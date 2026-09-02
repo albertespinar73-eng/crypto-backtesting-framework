@@ -18,7 +18,7 @@ from enum import Enum
 class InstrumentSpec:
     point_value: float = 1.0  # PLACEHOLDER — pregunta abierta #2, confirmar con el bróker real
     risk_per_trade_pct: float = 0.01
-    max_stop_points: float = 70.0
+    max_stop_points: float = 75.0  # calibrado contra Full_Backtest.numbers, ver dax_model/entry.py
 
 
 def position_size(equity: float, stop_distance_points: float, spec: InstrumentSpec = InstrumentSpec()) -> float:

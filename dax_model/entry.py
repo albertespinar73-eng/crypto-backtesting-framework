@@ -13,6 +13,15 @@ displacement más grande) es la pregunta abierta #4 de
 docs/OPEN_QUESTIONS.md — aquí se implementa la interpretación mecánica más
 simple consistente con el ejemplo SL≈60 del Apéndice A, expuesta como
 `EntryPolicy` para poder ajustarla sin tocar la lógica de orquestación.
+
+`max_sl_points` por defecto: 75.0, CALIBRADO contra `Full_Backtest.numbers`
+(263 operaciones reales) — no ya el ~70 provisional del brief inicial. La
+columna SL real observada va de 20 a 75 puntos (mediana 40, media 40.8;
+solo 1 de 263 operaciones por encima de 70, ninguna por encima de 75). El
+propio `DAX40_Statistical_Review.pdf` confirma el ensanchamiento explícito
+de 20-60 a 20-75/25-75 puntos por el régimen de volatilidad actual (rango
+diario medio ~390pt en 2026 vs ~180-200pt en 2023-24) — no por una mejora de
+backtest, sino por una decisión de ajuste de régimen.
 """
 
 from __future__ import annotations
@@ -24,7 +33,7 @@ from .models import FVG, Entry
 
 @dataclass(frozen=True)
 class EntryPolicy:
-    max_sl_points: float = 70.0
+    max_sl_points: float = 75.0
 
 
 def order_fvgs_by_priority(fvgs: list[FVG], origin: float) -> list[FVG]:

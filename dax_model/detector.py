@@ -24,6 +24,15 @@ Alcance de esta primera versión (Fase 0):
   objetivo hacia PDH/PDL/liquidez de HTF (Sección 2) no está implementada
   todavía — requiere una serie multi-día y no está especificada con
   precisión suficiente para mecanizarla sin más ejemplos.
+
+Filtros togglables para backtest A/B (petición explícita de Albert):
+
+- `config.m15_policy.enabled` (default True) — filtro de estructura de 15m.
+- `config.h1_policy.enabled` (default False) — filtro de estructura de 1H,
+  ver docs/OPEN_QUESTIONS.md #11 (los dos informes de validación no están de
+  acuerdo sobre si el 1H sobrevive out-of-sample).
+- `config.ma_trend_policy.enabled` (default False) — filtro de tendencia
+  SMA100, feature nueva sin validar contra ningún dato todavía.
 """
 
 from __future__ import annotations
@@ -37,6 +46,7 @@ from .htf_filter import M15FilterPolicy, compute_m15_bias, evaluate_m15_filter
 from .models import Candle, DiscardedSetup, DiscardReason, Direction, Entry, Setup, SetupModel
 from .sessions import AsianRange, KillzoneConfig, is_in_killzone
 from .structure import classify_swings, detect_mss, find_pivots, last_swing_before
+from .trend_filter import MATrendFilterPolicy, compute_ma_trend_bias, evaluate_ma_trend_filter
 from .models import SwingKind
 
 
@@ -44,7 +54,19 @@ from .models import SwingKind
 class DetectorConfig:
     killzone: KillzoneConfig = KillzoneConfig()
     entry_policy: EntryPolicy = EntryPolicy()
+    # Filtro de estructura de 15m — CONFIRMADO por Albert como filtro activo
+    # (mode="skip"). Apaga con M15FilterPolicy(enabled=False) para
+    # backtestear "sin filtro de estructura" (Albert tiene dudas de que la
+    # lectura de market structure sea correcta y quiere poder comparar).
     m15_policy: M15FilterPolicy = M15FilterPolicy()
+    # Filtro de estructura de 1H — mismo mecanismo que el de 15m, pero
+    # DESACTIVADO por defecto: los dos informes de validación de Albert no
+    # coinciden en si el 1H sobrevive out-of-sample (ver htf_filter.py y
+    # docs/OPEN_QUESTIONS.md #11). Actívalo para comparar en backtest.
+    h1_policy: M15FilterPolicy = M15FilterPolicy(enabled=False)
+    # Filtro de tendencia SMA100 — feature nueva sin validar (ver
+    # trend_filter.py), desactivado por defecto.
+    ma_trend_policy: MATrendFilterPolicy = MATrendFilterPolicy()
     pivot_left: int = 1
     pivot_right: int = 1
     take_profit_rr: float = 2.0
@@ -74,6 +96,7 @@ def _find_sweep_index(candles: list[Candle], start_index: int, level: float, is_
 def _evaluate_direction(
     candles_5m: list[Candle],
     candles_15m: list[Candle],
+    candles_1h: list[Candle],
     asian_range: AsianRange,
     monitor_start_index: int,
     direction: Direction,
@@ -169,6 +192,33 @@ def _evaluate_direction(
             reason=DiscardReason("M15_MISALIGNED", "Estructura de 15m en contra de la dirección del setup"),
         )
 
+    h1_window = candles_1h[: _index_at_or_before(candles_1h, mss_ts) + 1] if candles_1h else []
+    h1_bias = compute_m15_bias(h1_window) if h1_window else None  # función agnóstica al timeframe
+    h1_result = evaluate_m15_filter(direction, h1_bias, config.h1_policy)
+
+    if not h1_result.take_trade:
+        return DiscardedSetup(
+            model=SetupModel.PRIMARY_SWEEP,
+            direction=direction,
+            sweep_index=sweep_index,
+            reason=DiscardReason("H1_MISALIGNED", "Estructura de 1H en contra de la dirección del setup"),
+        )
+
+    ma_source = h1_window if config.ma_trend_policy.timeframe == "1h" else m15_window
+    ma_trend_bias = compute_ma_trend_bias(ma_source, config.ma_trend_policy.period) if ma_source else None
+    ma_trend_result = evaluate_ma_trend_filter(direction, ma_trend_bias, config.ma_trend_policy)
+
+    if not ma_trend_result.take_trade:
+        return DiscardedSetup(
+            model=SetupModel.PRIMARY_SWEEP,
+            direction=direction,
+            sweep_index=sweep_index,
+            reason=DiscardReason(
+                "MA100_TREND_MISALIGNED",
+                f"Precio en contra de la SMA{config.ma_trend_policy.period} en {config.ma_trend_policy.timeframe}",
+            ),
+        )
+
     return Setup(
         model=SetupModel.PRIMARY_SWEEP,
         direction=direction,
@@ -179,6 +229,8 @@ def _evaluate_direction(
         entry=entry,
         take_profit=take_profit,
         m15_aligned=m15_result.aligned,
+        h1_aligned=h1_result.aligned,
+        ma_trend_aligned=ma_trend_result.aligned,
     )
 
 
@@ -188,16 +240,23 @@ def detect_primary_setups(
     asian_range: AsianRange,
     monitor_start_index: int,
     config: DetectorConfig = DetectorConfig(),
+    candles_1h: list[Candle] | None = None,
 ) -> list[Setup | DiscardedSetup]:
     """Evalúa ambas direcciones (barrido de Asian High -> short, barrido de
     Asian Low -> long) para una sesión y devuelve lo que haya encontrado.
     `monitor_start_index` es el índice en `candles_5m` a partir del cual
     empieza a monitorizarse el sweep (recomendado: justo tras el cierre del
     rango asiático, ver sessions.compute_asian_range).
+
+    `candles_1h` es opcional (por defecto `[]`) porque el filtro de 1H está
+    desactivado por defecto (`config.h1_policy.enabled=False`) — solo hace
+    falta pasarlo si se activa para comparar en backtest.
     """
     results: list[Setup | DiscardedSetup] = []
     for direction in (Direction.SHORT, Direction.LONG):
-        outcome = _evaluate_direction(candles_5m, candles_15m, asian_range, monitor_start_index, direction, config)
+        outcome = _evaluate_direction(
+            candles_5m, candles_15m, candles_1h or [], asian_range, monitor_start_index, direction, config
+        )
         if outcome is not None:
             results.append(outcome)
     return results

@@ -16,13 +16,23 @@ position_size = (equity * 0.01) / (stop_distance_points * point_value)
 Sin excepciones, sin condicionar al rango del día anterior (ese filtro fue
 eliminado explícitamente por Albert — no reintroducirlo).
 
-## 2. SL máximo ~70 puntos
+## 2. SL máximo — CALIBRADO a 75 puntos (antes placeholder ~70)
 
 Si `dax_model.entry.choose_entry` no encuentra ninguna combinación de FVG
 (primero / siguiente) con `stop_distance <= max_sl_points`, la operación se
 descarta. Este chequeo vive dentro de la propia función de entrada — no es
 posible construir un `Trade` con un stop mayor al límite: `choose_entry`
 devuelve `None` en ese caso y el detector no genera ninguna señal.
+
+Calibrado contra las 263 operaciones reales de `Full_Backtest.numbers`: el
+SL real va de 20 a 75 puntos (mediana 40, media 40.8; solo 1 operación por
+encima de 70, ninguna por encima de 75). `DAX40_Statistical_Review.pdf`
+confirma que el rango se ensanchó explícitamente de 20–60 a 20–75/25–75
+puntos por el régimen de volatilidad de 2026 (rango diario medio ~390pt vs
+~180–200pt en 2023–24) — una decisión de ajuste de régimen, no una
+optimización de backtest (el propio informe encuentra que el tamaño del SL
+no predice el resultado, p=0.27–0.66). Nuevo default:
+`EntryPolicy.max_sl_points = 75.0` / `InstrumentSpec.max_stop_points = 75.0`.
 
 ## 3. Máximo 2 operaciones/día; parar tras la primera pérdida
 
@@ -50,6 +60,18 @@ Implementado en `dax_model.risk.DrawdownGuardrail`. En Fase 1/2, esta misma
 lógica debe vivir **también** dentro del EA MQL5 (no solo en el componente
 Python) — es la pieza más crítica de "fallar de forma segura" del brief
 original, así que no puede depender de que un proceso externo esté vivo.
+
+**Dato de contexto real** (no cambia el placeholder, pero lo informa):
+`Asian_Sweep_Paper.pdf` simula 20.000 resamples de las 263 operaciones
+reales a 1% de riesgo fijo. El drawdown máximo histórico real fue 5.0R; en
+simulación, el drawdown mediano de un run de este tamaño es 6.2R, el
+percentil 95 es 10.0R, y la probabilidad de tocar un 10% de drawdown de
+cuenta en algún punto de un run de 263 operaciones es **7.2%** (5.8% usando
+solo el periodo out-of-sample 2025-26). Si el límite real de la prop firm
+(pregunta abierta #3) resulta ser 10% total a 1% de riesgo por operación,
+esto sugiere que el margen de seguridad no es enorme — información a tener
+en cuenta al fijar el `warning_threshold_pct` real, no una razón para
+cambiar el placeholder por mi cuenta.
 
 ## 5. Circuit breaker de conectividad
 

@@ -100,7 +100,9 @@ class Setup:
     mss_close: float
     entry: Entry
     take_profit: float
-    m15_aligned: bool | None  # None si no se pudo evaluar (datos insuficientes)
+    m15_aligned: bool | None  # None si el filtro está apagado o no se pudo evaluar
+    h1_aligned: bool | None = None  # None si el filtro está apagado (por defecto) o no se pudo evaluar
+    ma_trend_aligned: bool | None = None  # None si el filtro está apagado (por defecto) o no se pudo evaluar
 
 
 @dataclass

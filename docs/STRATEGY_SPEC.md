@@ -76,9 +76,10 @@ Prioridad estricta, sin excepciones:
    cercano al precio en el momento del sweep): calcula el borde del FVG
    **más cercano a `origin`** (el punto físicamente más profundo posible
    dentro del hueco, hacia Premium en un short / Discount en un long).
-   - Si `distancia(origin, borde_cercano) <= max_sl_points` (~70 pts):
-     entrada = ese borde. **No** se usa un punto fijo como "el 0.5" — el
-     0.50–0.62 del PDF original es solo referencia aproximada, no fórmula.
+   - Si `distancia(origin, borde_cercano) <= max_sl_points` (**75 pts,
+     calibrado** — ver más abajo): entrada = ese borde. **No** se usa un
+     punto fijo como "el 0.5" — el 0.50–0.62 del PDF original es solo
+     referencia aproximada, no fórmula.
    - Si no, ese FVG queda descartado.
 3. Si el primer FVG no sirve, repite el paso 2 con el siguiente FVG
    formado en el mismo tramo (más cercano al origen, por tanto con menor
@@ -90,10 +91,14 @@ Prioridad estricta, sin excepciones:
    entrada se ejecute dentro de la killzone, se pasa directamente al
    siguiente FVG según la misma prioridad.
 
-La precisión exacta de "el borde más cercano al origen" (frente a, por
-ejemplo, la apertura de la vela de displacement más grande) es la pregunta
-abierta #4 — implementado como parámetro de `EntryPolicy`, calibrable contra
-`Full Backtest.numbers` en cuanto esté disponible.
+`max_sl_points` = **75.0** (antes placeholder ~70) — calibrado contra las
+263 operaciones reales de `Full_Backtest.numbers`: SL real entre 20 y 75
+puntos (mediana 40). Ver `docs/OPEN_QUESTIONS.md` #4bis para el detalle. La
+precisión exacta de "el borde más cercano al origen" (frente a, por
+ejemplo, la apertura de la vela de displacement más grande) sigue siendo la
+pregunta abierta #4 — no se ha podido afinar más porque `Full_Backtest.numbers`
+es un diario de resultados, no una serie de velas con la que reconstruir el
+punto exacto de cada entrada real.
 
 ## Objetivos
 
@@ -116,11 +121,33 @@ en 15m:
 
 - Alineado con la dirección del setup → tomar con sizing normal.
 - En contra → política configurable (`skip` por defecto, ver pregunta
-  abierta #6; `reduce` como alternativa).
+  abierta #6; `reduce` como alternativa). Togglable por completo
+  (`M15FilterPolicy.enabled`) para backtestear con/sin — Albert tiene dudas
+  sobre si la lectura de market structure del algoritmo es correcta y
+  quiere poder compararlo.
 
-Los filtros de 1H y 4H **no se implementan como filtro de entrada** (no
-replican / cambian de signo en el estudio out-of-sample). 4H/1H se muestran
-en el dashboard como contexto informativo únicamente.
+El filtro de 4H **no se implementa como filtro de entrada**: los tres
+documentos de validación subidos coinciden en que no aporta señal (o la
+diluye) — se muestra en el dashboard como contexto informativo únicamente.
+
+El filtro de 1H **sí está implementado**, pero **desactivado por defecto**
+(`DetectorConfig.h1_policy = M15FilterPolicy(enabled=False)`), togglable
+igual que el de 15m. Motivo: los dos informes de validación no coinciden
+sobre si el 1H sobrevive out-of-sample — ver `docs/OPEN_QUESTIONS.md` #11
+para el detalle completo y la cita textual de `Asian_Sweep_Paper.pdf`
+autocorrigiendo su propia versión anterior en este punto.
+
+## Filtro de tendencia SMA100 (nuevo, sin validar)
+
+Pedido por Albert para poder backtestear con/sin, igual que el filtro de
+estructura. Ningún documento cuantitativo prueba ni menciona un filtro de
+media móvil — es territorio nuevo, no una regla ya respaldada por datos.
+Implementado en `dax_model/trend_filter.py`, **desactivado por defecto**
+(`DetectorConfig.ma_trend_policy = MATrendFilterPolicy(enabled=False)`),
+con periodo (100 por defecto) y timeframe (15m o 1H, 1H por defecto)
+configurables. Regla: tendencia LONG si el cierre está por encima de la
+SMA(periodo), SHORT si por debajo; debe coincidir con la dirección del
+setup para tomarlo, si el filtro está activo.
 
 ## Filtros explícitamente eliminados — NO implementar
 

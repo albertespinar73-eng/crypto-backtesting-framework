@@ -1,10 +1,19 @@
 """Loader para `Full Backtest.numbers` (263 operaciones reales, fuente de
 verdad para calibrar cualquier umbral numérico — ver docs/OPEN_QUESTIONS.md).
 
-Este archivo NO está presente en el repositorio todavía. Esta función queda
-lista para usarse en cuanto Albert lo suba, pero deliberadamente no se ha
-rellenado con datos inventados ni se ha ejecutado contra nada — no hay
-ninguna operación "real" en este repo.
+Confirmado contra el archivo real (18-ago-2026): 1 hoja, 1 tabla, 264 filas
+(263 operaciones + cabecera), 20 columnas: `Date, Trade, Day of Week, Order
+Type, Asian High/Low Sweep, Lot Size, Opening Time, Closing Time, Duration,
+SL, TP, RR, Close, G/L, Total, Percentage, Asian Range, <15m>, 1H, 4H`. OJO:
+la cabecera de la columna de 15 minutos no es el texto "15m" sino un
+`datetime.timedelta(seconds=900)` — probablemente una celda con formato de
+duración en el Numbers original — así que acceder a ella por nombre literal
+`'15m'` falla; usa la posición (`header[17]`) o compara por tipo. Es un
+diario de resultados (SL/TP/RR planeados, hora, motivo de cierre, sesgo de
+estructura etiquetado a mano en 227 de 263 filas), **no** una serie de
+velas OHLC — no permite reproducir sweeps/MSS/FVG vela a vela, solo
+calibrar umbrales agregados (rango de SL, tasas de alineación, etc.), que
+ya se ha hecho para `EntryPolicy.max_sl_points` — ver docs/OPEN_QUESTIONS.md.
 
 Nota de instalación (ya avisada en el brief original): `pip install snappy`
 instala el paquete equivocado (topología SnapPy) y rompe `numbers-parser`.

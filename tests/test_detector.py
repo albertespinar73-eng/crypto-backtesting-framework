@@ -7,6 +7,7 @@ from dax_model.entry import EntryPolicy
 from dax_model.htf_filter import M15FilterPolicy
 from dax_model.models import DiscardedSetup, Direction, Setup, SetupModel
 from dax_model.sessions import AsianRange
+from dax_model.trend_filter import MATrendFilterPolicy
 
 
 def _candles_5m():
@@ -78,3 +79,76 @@ def test_m15_skip_policy_discards_misaligned_setup():
     assert len(shorts) == 1
     assert isinstance(shorts[0], DiscardedSetup)
     assert shorts[0].reason.code == "M15_MISALIGNED"
+
+
+def test_h1_filter_disabled_by_default_ignores_1h_data():
+    # Sesgo 1H en contra (LONG), pero h1_policy sigue desactivado por defecto
+    candles_1h_long_bias = [
+        candle(dt(18, 3, 0), 90, 95, 89, 91),
+        candle(dt(18, 4, 0), 91, 99, 90, 98),
+        candle(dt(18, 5, 0), 96, 97, 92, 93),
+        candle(dt(18, 6, 0), 93, 101, 92, 100),  # close 100 > 99 -> bias LONG
+    ]
+    setups = detect_primary_setups(
+        _candles_5m(), _candles_15m(), _asian_range(), monitor_start_index=2, candles_1h=candles_1h_long_bias
+    )
+    shorts = [s for s in setups if isinstance(s, Setup) and s.direction == Direction.SHORT]
+    assert len(shorts) == 1
+    assert shorts[0].h1_aligned is None  # filtro apagado -> ni se evalúa
+
+
+def test_h1_filter_enabled_discards_misaligned_setup():
+    candles_1h_long_bias = [
+        candle(dt(18, 3, 0), 90, 95, 89, 91),
+        candle(dt(18, 4, 0), 91, 99, 90, 98),
+        candle(dt(18, 5, 0), 96, 97, 92, 93),
+        candle(dt(18, 6, 0), 93, 101, 92, 100),  # close 100 > 99 -> bias LONG
+    ]
+    config = DetectorConfig(h1_policy=M15FilterPolicy(enabled=True, mode="skip"))
+    setups = detect_primary_setups(
+        _candles_5m(), _candles_15m(), _asian_range(), monitor_start_index=2, config=config, candles_1h=candles_1h_long_bias
+    )
+    shorts = [s for s in setups if s.direction == Direction.SHORT]
+    assert len(shorts) == 1
+    assert isinstance(shorts[0], DiscardedSetup)
+    assert shorts[0].reason.code == "H1_MISALIGNED"
+
+
+def test_h1_filter_enabled_passes_aligned_setup():
+    candles_1h_short_bias = [
+        candle(dt(18, 3, 0), 96, 100, 95, 98),
+        candle(dt(18, 4, 0), 97, 98, 90, 93),
+        candle(dt(18, 5, 0), 95, 99, 94, 96),
+        candle(dt(18, 6, 0), 89, 97, 88, 89),  # close 89 < 90 -> bias SHORT
+    ]
+    config = DetectorConfig(h1_policy=M15FilterPolicy(enabled=True, mode="skip"))
+    setups = detect_primary_setups(
+        _candles_5m(), _candles_15m(), _asian_range(), monitor_start_index=2, config=config, candles_1h=candles_1h_short_bias
+    )
+    shorts = [s for s in setups if isinstance(s, Setup) and s.direction == Direction.SHORT]
+    assert len(shorts) == 1
+    assert shorts[0].h1_aligned is True
+
+
+def test_ma_trend_filter_disabled_by_default():
+    setups = detect_primary_setups(_candles_5m(), _candles_15m(), _asian_range(), monitor_start_index=2)
+    shorts = [s for s in setups if isinstance(s, Setup) and s.direction == Direction.SHORT]
+    assert shorts[0].ma_trend_aligned is None
+
+
+def test_ma_trend_filter_enabled_discards_misaligned_setup():
+    # SMA3 en 1H claramente por debajo del último cierre -> sesgo LONG, en
+    # contra del short detectado -> se descarta cuando el filtro está activo.
+    candles_1h_bullish = [
+        candle(dt(18, 4, 0), 80, 85, 79, 82),
+        candle(dt(18, 5, 0), 82, 86, 80, 83),
+        candle(dt(18, 6, 0), 83, 90, 82, 88),  # SMA3 de estas 3 = (82+83+88)/3 = 84.33, close=88 > SMA -> LONG
+    ]
+    config = DetectorConfig(ma_trend_policy=MATrendFilterPolicy(enabled=True, period=3, timeframe="1h"))
+    setups = detect_primary_setups(
+        _candles_5m(), _candles_15m(), _asian_range(), monitor_start_index=2, config=config, candles_1h=candles_1h_bullish
+    )
+    shorts = [s for s in setups if s.direction == Direction.SHORT]
+    assert len(shorts) == 1
+    assert isinstance(shorts[0], DiscardedSetup)
+    assert shorts[0].reason.code == "MA100_TREND_MISALIGNED"
