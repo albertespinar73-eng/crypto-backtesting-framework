@@ -81,10 +81,19 @@ if asianSessionJustEnded
     sessionAsianHigh := asianHigh
     sessionAsianLow := asianLow
     sessionAsianEq := (asianHigh + asianLow) / 2
+    label.new(bar_index, asianHigh, "Rango fijado ✓", style = label.style_label_down, color = color.new(color.orange, 40), textcolor = color.white, size = size.tiny)
 
-plot(sessionAsianHigh, "Asian High", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 1)
-plot(sessionAsianLow, "Asian Low", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 1)
-plot(sessionAsianEq, "Asian EQ", color = color.new(color.gray, 40), style = plot.style_linebr, linewidth = 1)
+// Las líneas se ocultan mientras la sesión asiática de ESTA noche se está
+// formando (23:00-06:00): si no, seguirían mostrando el rango YA CERRADO de
+// ayer durante toda la madrugada, que visualmente se puede confundir con
+// "el sweep está ocurriendo dentro del rango asiático" cuando en realidad es
+// el rango de un día distinto, ya cerrado y sin relación con las velas de esa
+// franja horaria. Solo se ven desde que el rango de HOY cierra (06:00) hasta
+// que empieza a formarse el de la noche siguiente (23:00).
+asianLinesVisible = not na(sessionAsianHigh) and na(inAsianSession)
+plot(asianLinesVisible ? sessionAsianHigh : na, "Asian High", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 1)
+plot(asianLinesVisible ? sessionAsianLow : na, "Asian Low", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 1)
+plot(asianLinesVisible ? sessionAsianEq : na, "Asian EQ", color = color.new(color.gray, 40), style = plot.style_linebr, linewidth = 1)
 
 // ---------------------------------------------------------------------------
 // Killzone (08:15-10:45 CET) y ventana válida para el sweep (06:00-10:30 CET)
@@ -194,6 +203,14 @@ if newAsianSession
 
 var bool mssShortDone = false
 var bool mssLongDone = false
+
+// Línea de referencia visible: el nivel exacto que el CIERRE de una vela
+// tiene que superar para confirmar el MSS. Sin esto no hay forma de
+// verificar a ojo si una mecha que parece "romper todo" en realidad cerró
+// más allá de la referencia o no (la regla es por cierre, no por mecha).
+// Se dibuja solo mientras el setup está pendiente de confirmación.
+plot(sweptHigh and not mssShortDone ? refAtSweepShort : na, "Referencia MSS short (HL)", color = color.new(color.red, 20), style = plot.style_linebr, linewidth = 2)
+plot(sweptLow and not mssLongDone ? refAtSweepLong : na, "Referencia MSS long (LH)", color = color.new(color.green, 20), style = plot.style_linebr, linewidth = 2)
 
 // El MSS solo se confirma a partir de mssMinHour:mssMinMin (08:00 CET por
 // defecto), aunque el sweep que lo origina haya ocurrido antes y aunque la
