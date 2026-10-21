@@ -9,7 +9,19 @@
 // Reglas implementadas tal cual la especificación:
 //  - Rango asiático: apertura nocturna configurable -> 06:00 CET.
 //  - Killzone: 08:15-10:45 CET (sombreada).
+//  - El sweep de Asian High/Low solo cuenta dentro de una ventana configurable
+//    (por defecto 06:00-10:30 CET, es decir, ya con el rango asiático formado
+//    y antes de considerarlo "demasiado tarde"). Un sweep fuera de esa
+//    ventana se ignora por completo.
+//  - El MSS solo se confirma DENTRO de la killzone, aunque el sweep que lo
+//    origine haya ocurrido antes (p.ej. 07:40) — un cierre más allá de la
+//    referencia fuera de la killzone no arma el setup. NOTA: esto es más
+//    estricto que el default actual de dax_model.detector
+//    (`allow_pre_killzone_setups=True`, ver docs/OPEN_QUESTIONS.md #4) —
+//    decidir con Albert si se homogeneiza uno con el otro.
 //  - Swing points HH/HL/LH/LL por fractales (pivotos left/right configurables).
+//    Se pueden mostrar solo dentro de la killzone (toggle), pero el cálculo
+//    del MSS siempre usa el historial completo de swings, se dibujen o no.
 //  - MSS confirmado SOLO por CIERRE de vela más allá del último HL (short) /
 //    LH (long) previo al barrido de liquidez asiática — una mecha no cuenta.
 //  - FVGs de 3 velas (sin solape vela1/vela3), con sombreado que se apaga
@@ -27,11 +39,13 @@ indicator("DAX40 Asian-Sweep — MSS/FVG", overlay = true, max_boxes_count = 500
 grpSession = "Sesión asiática / Killzone"
 asianOpenH  = input.int(23, "Apertura nocturna (hora CET)", minval = 0, maxval = 23, group = grpSession, tooltip = "Pregunta abierta: confirmar hora real con el bróker (docs/OPEN_QUESTIONS.md #1)")
 asianOpenM  = input.int(0, "Apertura nocturna (minuto CET)", minval = 0, maxval = 59, group = grpSession)
+sweepWindowSession = input.session("0600-1030", "Ventana válida para el sweep (CET)", group = grpSession, tooltip = "El barrido de Asian High/Low solo cuenta si ocurre en esta ventana (por defecto, desde el cierre del rango asiático hasta las 10:30). Un sweep fuera de esta ventana se ignora.")
 killzoneStart = input.session("0815-1045", "Killzone (HHMM-HHMM, CET)", group = grpSession)
 
 grpStructure = "Estructura / MSS"
 pivotLeft  = input.int(1, "Velas izquierda (pivote)", minval = 1, group = grpStructure)
 pivotRight = input.int(1, "Velas derecha (pivote)", minval = 1, group = grpStructure)
+structureOnlyInKillzone = input.bool(false, "Mostrar estructura (HH/HL/LH/LL) solo en Killzone", group = grpStructure, tooltip = "Apaga las etiquetas de swing points fuera de la killzone para limpiar el gráfico. El cálculo interno del MSS sigue usando TODOS los swings (incluidos los previos a la killzone), solo se oculta el dibujo.")
 
 grpFvg = "Fair Value Gaps"
 showFvg      = input.bool(true, "Mostrar FVGs", group = grpFvg)
@@ -71,10 +85,12 @@ plot(sessionAsianLow, "Asian Low", color = color.new(color.orange, 0), style = p
 plot(sessionAsianEq, "Asian EQ", color = color.new(color.gray, 40), style = plot.style_linebr, linewidth = 1)
 
 // ---------------------------------------------------------------------------
-// Killzone (08:15-10:45 CET)
+// Killzone (08:15-10:45 CET) y ventana válida para el sweep (06:00-10:30 CET)
 // ---------------------------------------------------------------------------
 inKillzone = not na(time(timeframe.period, killzoneStart, tz))
 bgcolor(inKillzone ? color.new(color.blue, 92) : na, title = "Killzone")
+
+inSweepWindow = not na(time(timeframe.period, sweepWindowSession, tz))
 
 // ---------------------------------------------------------------------------
 // Swing points (HH/HL/LH/LL) — confirmados con `pivotRight` velas de retraso
@@ -111,14 +127,20 @@ if not na(ph)
     lastHigh := ph
     array.push(highPrices, ph)
     array.push(highKinds, kind)
-    label.new(bar_index - pivotRight, ph, kind, style = label.style_label_down, color = color.new(color.teal, 0), textcolor = color.white, size = size.tiny)
+    // El dibujo se puede restringir a la killzone (structureOnlyInKillzone),
+    // pero el pivote SIEMPRE se registra en el historial de arriba — el MSS
+    // necesita poder usar un HL/LH formado antes de la killzone como
+    // referencia, aunque no se dibuje.
+    if not structureOnlyInKillzone or inKillzone
+        label.new(bar_index - pivotRight, ph, kind, style = label.style_label_down, color = color.new(color.teal, 0), textcolor = color.white, size = size.tiny)
 
 if not na(pl)
     kind = na(lastLow) or pl > lastLow ? "HL" : "LL"
     lastLow := pl
     array.push(lowPrices, pl)
     array.push(lowKinds, kind)
-    label.new(bar_index - pivotRight, pl, kind, style = label.style_label_up, color = color.new(color.maroon, 0), textcolor = color.white, size = size.tiny)
+    if not structureOnlyInKillzone or inKillzone
+        label.new(bar_index - pivotRight, pl, kind, style = label.style_label_up, color = color.new(color.maroon, 0), textcolor = color.white, size = size.tiny)
 
 // nivel de referencia estructural vigente para el MSS: el último HL / LH
 // confirmados hasta ahora, busque donde busque en el historial (no solo si
@@ -134,12 +156,16 @@ var bool sweptLow = false
 var float refAtSweepShort = na
 var float refAtSweepLong = na
 
-if not na(sessionAsianHigh) and high > sessionAsianHigh and not sweptHigh
+// El sweep solo cuenta dentro de inSweepWindow (por defecto 06:00-10:30 CET,
+// es decir, después de que el rango asiático del día ya esté formado —
+// sessionAsianHigh/Low son na hasta entonces de todas formas — y antes de
+// que se considere demasiado tarde dentro de la sesión europea).
+if not na(sessionAsianHigh) and high > sessionAsianHigh and not sweptHigh and inSweepWindow
     sweptHigh := true
     refAtSweepShort := refLevelShort
     label.new(bar_index, high, "Sweep High", style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white, size = size.small)
 
-if not na(sessionAsianLow) and low < sessionAsianLow and not sweptLow
+if not na(sessionAsianLow) and low < sessionAsianLow and not sweptLow and inSweepWindow
     sweptLow := true
     refAtSweepLong := refLevelLong
     label.new(bar_index, low, "Sweep Low", style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = size.small)
@@ -162,11 +188,14 @@ if newAsianSession
 var bool mssShortDone = false
 var bool mssLongDone = false
 
-if sweptHigh and not mssShortDone and not na(refAtSweepShort) and close < refAtSweepShort
+// El MSS solo se confirma dentro de la killzone, aunque el sweep que lo
+// origina haya ocurrido antes (p.ej. a las 07:40) — un cierre más allá de la
+// referencia fuera de la killzone no cuenta como entrada válida.
+if sweptHigh and not mssShortDone and not na(refAtSweepShort) and close < refAtSweepShort and inKillzone
     mssShortDone := true
     label.new(bar_index, close, "MSS ↓ (cierre)", style = label.style_label_up, color = color.new(color.red, 0), textcolor = color.white, size = size.normal)
 
-if sweptLow and not mssLongDone and not na(refAtSweepLong) and close > refAtSweepLong
+if sweptLow and not mssLongDone and not na(refAtSweepLong) and close > refAtSweepLong and inKillzone
     mssLongDone := true
     label.new(bar_index, close, "MSS ↑ (cierre)", style = label.style_label_down, color = color.new(color.green, 0), textcolor = color.white, size = size.normal)
 
