@@ -16,13 +16,15 @@ ningún umbral (ATR, ADX, "limpieza") que no esté en el texto original.
 
 - Única ventana de entrada: **08:15–10:45 CET**. Ninguna operación nueva
   fuera de esa ventana.
-- El sweep y el impulso de vuelta pueden formarse antes de 08:15 (el sistema
-  monitoriza desde el cierre del rango asiático). **CONFIRMADO por Albert
-  (pregunta #5 — ver `OPEN_QUESTIONS.md`): el MSS cuenta a partir de las
-  08:00 CET**, sin esperar a que abra la killzone de ejecución. Un MSS
-  confirmado antes de las 08:00 se descarta; uno confirmado entre 08:00 y
-  08:15 sigue necesitando que el FVG de entrada no se haya mitigado para
-  cuando la killzone abre y se puede operar de verdad.
+- **CONFIRMADO por Albert (pregunta #5 — ver `OPEN_QUESTIONS.md`): tanto el
+  sweep como el MSS tienen que ocurrir DESPUÉS de que el rango asiático se
+  haya cerrado** (06:00 CET). El sweep tiene su propia ventana válida
+  (06:00–10:30 CET por defecto). El MSS, independientemente de si la
+  killzone de ejecución (08:15–10:45) ya ha abierto o no, cuenta **solo
+  dentro de su propia ventana, 08:00–10:30 CET por defecto**. Un MSS
+  confirmado antes de las 08:00 o después de las 10:30 se descarta; uno
+  confirmado entre 08:00 y 08:15 sigue necesitando que el FVG de entrada no
+  se haya mitigado para cuando la killzone abre y se puede operar de verdad.
 
 ## Rango asiático
 

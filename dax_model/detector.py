@@ -70,14 +70,18 @@ class DetectorConfig:
     pivot_left: int = 1
     pivot_right: int = 1
     take_profit_rr: float = 2.0
-    # CONFIRMADO por Albert (pregunta #5 de docs/OPEN_QUESTIONS.md): el MSS
-    # cuenta a partir de las 08:00 CET, no hace falta esperar a que abra la
-    # killzone de ejecución (08:15). Un MSS confirmado antes de las 08:00 se
-    # descarta; uno confirmado entre 08:00 y el inicio de la killzone sigue
-    # necesitando que el FVG de entrada no se haya mitigado para cuando la
-    # killzone abre y se puede operar de verdad (ver mitigation_check_index
-    # más abajo). Sustituye al antiguo `allow_pre_killzone_setups`.
+    # CONFIRMADO por Albert (pregunta #5 de docs/OPEN_QUESTIONS.md): tanto el
+    # sweep (ver sessions.AsianSessionConfig / inSweepWindow en el indicador
+    # Pine) como el MSS tienen que ocurrir DESPUÉS del cierre del rango
+    # asiático. El MSS, en concreto, solo cuenta dentro de su propia ventana
+    # 08:00-10:30 CET, independiente de la killzone de ejecución (08:15).
+    # Fuera de [mss_min_time_cet, mss_max_time_cet] se descarta. Un MSS
+    # confirmado entre 08:00 y el inicio de la killzone sigue necesitando que
+    # el FVG de entrada no se haya mitigado para cuando la killzone abre y se
+    # puede operar de verdad (ver mitigation_check_index más abajo).
+    # Sustituye al antiguo `allow_pre_killzone_setups`.
     mss_min_time_cet: time = time(8, 0)
+    mss_max_time_cet: time = time(10, 30)
 
 
 def _index_at_or_before(candles: list[Candle], ts: datetime) -> int:
@@ -149,6 +153,17 @@ def _evaluate_direction(
             reason=DiscardReason(
                 "MSS_TOO_EARLY",
                 f"MSS confirmado antes de las {config.mss_min_time_cet.strftime('%H:%M')} CET",
+            ),
+        )
+
+    if mss_time_cet > config.mss_max_time_cet:
+        return DiscardedSetup(
+            model=SetupModel.PRIMARY_SWEEP,
+            direction=direction,
+            sweep_index=sweep_index,
+            reason=DiscardReason(
+                "MSS_TOO_LATE",
+                f"MSS confirmado después de las {config.mss_max_time_cet.strftime('%H:%M')} CET",
             ),
         )
 

@@ -44,8 +44,10 @@ input int  InpKillzoneStartHour   = 8;    // Fijado por Albert
 input int  InpKillzoneStartMinute = 15;
 input int  InpKillzoneEndHour     = 10;
 input int  InpKillzoneEndMinute   = 45;
-input int  InpMssMinHour          = 8;    // CONFIRMADO por Albert (pregunta #5): el MSS cuenta desde esta hora CET
-input int  InpMssMinMinute        = 0;    // en adelante, sin esperar a que abra la killzone de ejecución (08:15)
+input int  InpMssMinHour          = 8;    // CONFIRMADO por Albert (pregunta #5): el MSS solo cuenta dentro de
+input int  InpMssMinMinute        = 0;    // esta ventana CET (08:00-10:30 por defecto), independiente de la
+input int  InpMssMaxHour          = 10;   // killzone de ejecución (08:15-10:45) -- tanto el sweep como el MSS
+input int  InpMssMaxMinute        = 30;   // deben ocurrir DESPUES del cierre del rango asiático.
 
 input group "=== Estructura / MSS ==="
 input int InpPivotLeft  = 1;
@@ -653,6 +655,14 @@ bool EvaluateDirection(const MqlRates &m5[], int n5, const MqlRates &m15[], int 
    {
       out.found = true; out.taken = false; out.sweepIndex = sweepIndex;
       out.discardReason = "MSS_TOO_EARLY";
+      return true;
+   }
+
+   int mssMaxMinutesOfDay = InpMssMaxHour * 60 + InpMssMaxMinute;
+   if(mssMinutesOfDay > mssMaxMinutesOfDay)
+   {
+      out.found = true; out.taken = false; out.sweepIndex = sweepIndex;
+      out.discardReason = "MSS_TOO_LATE";
       return true;
    }
 

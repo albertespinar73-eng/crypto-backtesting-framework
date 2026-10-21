@@ -13,12 +13,15 @@
 //    (por defecto 06:00-10:30 CET, es decir, ya con el rango asiático formado
 //    y antes de considerarlo "demasiado tarde"). Un sweep fuera de esa
 //    ventana se ignora por completo.
-//  - CONFIRMADO por Albert: el MSS solo cuenta a partir de las 08:00 CET
-//    (configurable), aunque el sweep que lo origine haya ocurrido antes y
-//    aunque la killzone de ejecución (08:15 por defecto) no haya abierto
-//    todavía — un cierre más allá de la referencia antes de esa hora no
-//    arma el setup. Misma regla aplicada en dax_model.detector
-//    (`DetectorConfig.mss_min_time_cet`, ver docs/OPEN_QUESTIONS.md #5).
+//  - CONFIRMADO por Albert: tanto el sweep como el MSS tienen que ocurrir
+//    DESPUÉS de que el rango asiático se haya cerrado. El sweep usa su
+//    propia ventana configurable (06:00-10:30 CET por defecto). El MSS
+//    cuenta solo dentro de su propia ventana, 08:00-10:30 CET por defecto
+//    (configurable, independiente de la killzone de ejecución 08:15-10:45)
+//    — un cierre más allá de la referencia fuera de esa ventana no arma el
+//    setup. Misma regla aplicada en dax_model.detector
+//    (`DetectorConfig.mss_min_time_cet`/`mss_max_time_cet`, ver
+//    docs/OPEN_QUESTIONS.md #5).
 //  - Swing points HH/HL/LH/LL por fractales (pivotos left/right configurables).
 //    Se pueden mostrar solo dentro de la killzone (toggle), pero el cálculo
 //    del MSS siempre usa el historial completo de swings, se dibujen o no.
@@ -40,9 +43,8 @@ grpSession = "Sesión asiática / Killzone"
 asianOpenH  = input.int(23, "Apertura nocturna (hora CET)", minval = 0, maxval = 23, group = grpSession, tooltip = "Pregunta abierta: confirmar hora real con el bróker (docs/OPEN_QUESTIONS.md #1)")
 asianOpenM  = input.int(0, "Apertura nocturna (minuto CET)", minval = 0, maxval = 59, group = grpSession)
 sweepWindowSession = input.session("0600-1030", "Ventana válida para el sweep (CET)", group = grpSession, tooltip = "El barrido de Asian High/Low solo cuenta si ocurre en esta ventana (por defecto, desde el cierre del rango asiático hasta las 10:30). Un sweep fuera de esta ventana se ignora.")
-killzoneStart = input.session("0815-1045", "Killzone (HHMM-HHMM, CET)", group = grpSession)
-mssMinHour = input.int(8, "MSS válido a partir de (hora CET)", minval = 0, maxval = 23, group = grpSession, tooltip = "El MSS cuenta desde esta hora en adelante, sin esperar a que abra la killzone de ejecución (08:15 por defecto) — CONFIRMADO: solo si el MSS se confirma a partir de las 08:00 CET.")
-mssMinMin  = input.int(0, "MSS válido a partir de (minuto CET)", minval = 0, maxval = 59, group = grpSession)
+killzoneStart = input.session("0815-1045", "Killzone ejecución (HHMM-HHMM, CET)", group = grpSession, tooltip = "Ventana de entrada/ejecución según el brief original (08:15-10:45). Solo se usa para la sombra y para el toggle de estructura.")
+mssWindowSession = input.session("0800-1030", "Ventana válida para el MSS (CET)", group = grpSession, tooltip = "CONFIRMADO por Albert: el MSS solo cuenta dentro de esta ventana (08:00-10:30 por defecto), sin esperar a que abra la killzone de ejecución de arriba. Un cierre más allá de la referencia fuera de esta ventana no arma el setup.")
 
 grpStructure = "Estructura / MSS"
 pivotLeft  = input.int(1, "Velas izquierda (pivote)", minval = 1, group = grpStructure)
@@ -103,10 +105,10 @@ bgcolor(inKillzone ? color.new(color.blue, 92) : na, title = "Killzone")
 
 inSweepWindow = not na(time(timeframe.period, sweepWindowSession, tz))
 
-// El MSS cuenta a partir de mssMinHour:mssMinMin CET, independientemente de
-// si la killzone de ejecución ya ha abierto o no (confirmado por Albert:
-// "solo si el MSS es después de las 8am").
-mssAllowed = not na(time(timeframe.period, str.format("{0,number,00}{1,number,00}-2359", mssMinHour, mssMinMin), tz))
+// El MSS cuenta dentro de mssWindowSession (08:00-10:30 CET por defecto),
+// independientemente de si la killzone de ejecución (08:15-10:45) ya ha
+// abierto o no (confirmado por Albert).
+mssAllowed = not na(time(timeframe.period, mssWindowSession, tz))
 
 // ---------------------------------------------------------------------------
 // Swing points (HH/HL/LH/LL) — confirmados con `pivotRight` velas de retraso
@@ -212,10 +214,10 @@ var bool mssLongDone = false
 plot(sweptHigh and not mssShortDone ? refAtSweepShort : na, "Referencia MSS short (HL)", color = color.new(color.red, 20), style = plot.style_linebr, linewidth = 2)
 plot(sweptLow and not mssLongDone ? refAtSweepLong : na, "Referencia MSS long (LH)", color = color.new(color.green, 20), style = plot.style_linebr, linewidth = 2)
 
-// El MSS solo se confirma a partir de mssMinHour:mssMinMin (08:00 CET por
+// El MSS solo se confirma dentro de mssWindowSession (08:00-10:30 CET por
 // defecto), aunque el sweep que lo origina haya ocurrido antes y aunque la
 // killzone de ejecución (08:15 por defecto) no haya abierto todavía — un
-// cierre más allá de la referencia antes de esa hora no cuenta.
+// cierre más allá de la referencia fuera de esa ventana no cuenta.
 if sweptHigh and not mssShortDone and not na(refAtSweepShort) and close < refAtSweepShort and mssAllowed
     mssShortDone := true
     label.new(bar_index, close, "MSS ↓ (cierre)", style = label.style_label_up, color = color.new(color.red, 0), textcolor = color.white, size = size.normal)
