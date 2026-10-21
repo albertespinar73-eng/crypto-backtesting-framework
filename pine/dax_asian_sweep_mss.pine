@@ -13,12 +13,12 @@
 //    (por defecto 06:00-10:30 CET, es decir, ya con el rango asiático formado
 //    y antes de considerarlo "demasiado tarde"). Un sweep fuera de esa
 //    ventana se ignora por completo.
-//  - El MSS solo se confirma DENTRO de la killzone, aunque el sweep que lo
-//    origine haya ocurrido antes (p.ej. 07:40) — un cierre más allá de la
-//    referencia fuera de la killzone no arma el setup. NOTA: esto es más
-//    estricto que el default actual de dax_model.detector
-//    (`allow_pre_killzone_setups=True`, ver docs/OPEN_QUESTIONS.md #4) —
-//    decidir con Albert si se homogeneiza uno con el otro.
+//  - CONFIRMADO por Albert: el MSS solo cuenta a partir de las 08:00 CET
+//    (configurable), aunque el sweep que lo origine haya ocurrido antes y
+//    aunque la killzone de ejecución (08:15 por defecto) no haya abierto
+//    todavía — un cierre más allá de la referencia antes de esa hora no
+//    arma el setup. Misma regla aplicada en dax_model.detector
+//    (`DetectorConfig.mss_min_time_cet`, ver docs/OPEN_QUESTIONS.md #5).
 //  - Swing points HH/HL/LH/LL por fractales (pivotos left/right configurables).
 //    Se pueden mostrar solo dentro de la killzone (toggle), pero el cálculo
 //    del MSS siempre usa el historial completo de swings, se dibujen o no.
@@ -41,6 +41,8 @@ asianOpenH  = input.int(23, "Apertura nocturna (hora CET)", minval = 0, maxval =
 asianOpenM  = input.int(0, "Apertura nocturna (minuto CET)", minval = 0, maxval = 59, group = grpSession)
 sweepWindowSession = input.session("0600-1030", "Ventana válida para el sweep (CET)", group = grpSession, tooltip = "El barrido de Asian High/Low solo cuenta si ocurre en esta ventana (por defecto, desde el cierre del rango asiático hasta las 10:30). Un sweep fuera de esta ventana se ignora.")
 killzoneStart = input.session("0815-1045", "Killzone (HHMM-HHMM, CET)", group = grpSession)
+mssMinHour = input.int(8, "MSS válido a partir de (hora CET)", minval = 0, maxval = 23, group = grpSession, tooltip = "El MSS cuenta desde esta hora en adelante, sin esperar a que abra la killzone de ejecución (08:15 por defecto) — CONFIRMADO: solo si el MSS se confirma a partir de las 08:00 CET.")
+mssMinMin  = input.int(0, "MSS válido a partir de (minuto CET)", minval = 0, maxval = 59, group = grpSession)
 
 grpStructure = "Estructura / MSS"
 pivotLeft  = input.int(1, "Velas izquierda (pivote)", minval = 1, group = grpStructure)
@@ -91,6 +93,11 @@ inKillzone = not na(time(timeframe.period, killzoneStart, tz))
 bgcolor(inKillzone ? color.new(color.blue, 92) : na, title = "Killzone")
 
 inSweepWindow = not na(time(timeframe.period, sweepWindowSession, tz))
+
+// El MSS cuenta a partir de mssMinHour:mssMinMin CET, independientemente de
+// si la killzone de ejecución ya ha abierto o no (confirmado por Albert:
+// "solo si el MSS es después de las 8am").
+mssAllowed = not na(time(timeframe.period, str.format("{0,number,00}{1,number,00}-2359", mssMinHour, mssMinMin), tz))
 
 // ---------------------------------------------------------------------------
 // Swing points (HH/HL/LH/LL) — confirmados con `pivotRight` velas de retraso
@@ -188,14 +195,15 @@ if newAsianSession
 var bool mssShortDone = false
 var bool mssLongDone = false
 
-// El MSS solo se confirma dentro de la killzone, aunque el sweep que lo
-// origina haya ocurrido antes (p.ej. a las 07:40) — un cierre más allá de la
-// referencia fuera de la killzone no cuenta como entrada válida.
-if sweptHigh and not mssShortDone and not na(refAtSweepShort) and close < refAtSweepShort and inKillzone
+// El MSS solo se confirma a partir de mssMinHour:mssMinMin (08:00 CET por
+// defecto), aunque el sweep que lo origina haya ocurrido antes y aunque la
+// killzone de ejecución (08:15 por defecto) no haya abierto todavía — un
+// cierre más allá de la referencia antes de esa hora no cuenta.
+if sweptHigh and not mssShortDone and not na(refAtSweepShort) and close < refAtSweepShort and mssAllowed
     mssShortDone := true
     label.new(bar_index, close, "MSS ↓ (cierre)", style = label.style_label_up, color = color.new(color.red, 0), textcolor = color.white, size = size.normal)
 
-if sweptLow and not mssLongDone and not na(refAtSweepLong) and close > refAtSweepLong and inKillzone
+if sweptLow and not mssLongDone and not na(refAtSweepLong) and close > refAtSweepLong and mssAllowed
     mssLongDone := true
     label.new(bar_index, close, "MSS ↑ (cierre)", style = label.style_label_down, color = color.new(color.green, 0), textcolor = color.white, size = size.normal)
 

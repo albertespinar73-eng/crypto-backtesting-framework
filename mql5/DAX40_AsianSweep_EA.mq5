@@ -44,7 +44,8 @@ input int  InpKillzoneStartHour   = 8;    // Fijado por Albert
 input int  InpKillzoneStartMinute = 15;
 input int  InpKillzoneEndHour     = 10;
 input int  InpKillzoneEndMinute   = 45;
-input bool InpAllowPreKillzoneSetups = true; // pregunta #5
+input int  InpMssMinHour          = 8;    // CONFIRMADO por Albert (pregunta #5): el MSS cuenta desde esta hora CET
+input int  InpMssMinMinute        = 0;    // en adelante, sin esperar a que abra la killzone de ejecución (08:15)
 
 input group "=== Estructura / MSS ==="
 input int InpPivotLeft  = 1;
@@ -644,10 +645,14 @@ bool EvaluateDirection(const MqlRates &m5[], int n5, const MqlRates &m15[], int 
 
    datetime mssTimeCET = BrokerTimeToCET(m5[mssIndex].time);
    bool mssInKillzone = InKillzone(mssTimeCET);
-   if(!mssInKillzone && !InpAllowPreKillzoneSetups)
+
+   MqlDateTime mssStruct; TimeToStruct(mssTimeCET, mssStruct);
+   int mssMinutesOfDay = mssStruct.hour * 60 + mssStruct.min;
+   int mssMinMinutesOfDay = InpMssMinHour * 60 + InpMssMinMinute;
+   if(mssMinutesOfDay < mssMinMinutesOfDay)
    {
       out.found = true; out.taken = false; out.sweepIndex = sweepIndex;
-      out.discardReason = "OUTSIDE_KILLZONE";
+      out.discardReason = "MSS_TOO_EARLY";
       return true;
    }
 

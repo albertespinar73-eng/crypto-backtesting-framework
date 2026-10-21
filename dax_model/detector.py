@@ -38,7 +38,7 @@ Filtros togglables para backtest A/B (petición explícita de Albert):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 
 from .entry import EntryPolicy, choose_entry
 from .fvg import find_fvgs, is_mitigated
@@ -70,8 +70,14 @@ class DetectorConfig:
     pivot_left: int = 1
     pivot_right: int = 1
     take_profit_rr: float = 2.0
-    # Pregunta abierta #5 — ver docs/OPEN_QUESTIONS.md
-    allow_pre_killzone_setups: bool = True
+    # CONFIRMADO por Albert (pregunta #5 de docs/OPEN_QUESTIONS.md): el MSS
+    # cuenta a partir de las 08:00 CET, no hace falta esperar a que abra la
+    # killzone de ejecución (08:15). Un MSS confirmado antes de las 08:00 se
+    # descarta; uno confirmado entre 08:00 y el inicio de la killzone sigue
+    # necesitando que el FVG de entrada no se haya mitigado para cuando la
+    # killzone abre y se puede operar de verdad (ver mitigation_check_index
+    # más abajo). Sustituye al antiguo `allow_pre_killzone_setups`.
+    mss_min_time_cet: time = time(8, 0)
 
 
 def _index_at_or_before(candles: list[Candle], ts: datetime) -> int:
@@ -133,13 +139,17 @@ def _evaluate_direction(
 
     mss_ts = candles_5m[mss_index].timestamp
     mss_in_killzone = is_in_killzone(mss_ts, config.killzone)
+    mss_time_cet = mss_ts.timetz().replace(tzinfo=None)
 
-    if not mss_in_killzone and not config.allow_pre_killzone_setups:
+    if mss_time_cet < config.mss_min_time_cet:
         return DiscardedSetup(
             model=SetupModel.PRIMARY_SWEEP,
             direction=direction,
             sweep_index=sweep_index,
-            reason=DiscardReason("OUTSIDE_KILLZONE", "MSS confirmado fuera de la killzone 08:15-10:45 CET"),
+            reason=DiscardReason(
+                "MSS_TOO_EARLY",
+                f"MSS confirmado antes de las {config.mss_min_time_cet.strftime('%H:%M')} CET",
+            ),
         )
 
     origin = candles_5m[sweep_index].high if is_short else candles_5m[sweep_index].low
