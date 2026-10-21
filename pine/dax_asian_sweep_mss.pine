@@ -84,24 +84,47 @@ pl = ta.pivotlow(low, pivotLeft, pivotRight)
 
 var float lastHigh = na
 var float lastLow = na
-var string lastHighKind = na
-var string lastLowKind = na
+
+// Historial completo de swings clasificados, para poder buscar hacia atrás
+// "el último HL" / "el último LH" aunque el pivote MÁS RECIENTE sea de otro
+// tipo (p.ej. una LL justo antes del sweep) — igual que
+// dax_model.structure.last_swing_before. Comprobar solo el pivote más
+// reciente (como hacía la v0.1 de este indicador) perdía setups válidos
+// cada vez que el precio imprimía un nuevo extremo "equivocado" justo antes
+// del barrido.
+var array<float>  lowPrices  = array.new<float>()
+var array<string> lowKinds   = array.new<string>()
+var array<float>  highPrices = array.new<float>()
+var array<string> highKinds  = array.new<string>()
+
+f_lastOfKind(arrPrices, arrKinds, wantKind) =>
+    float result = na
+    if array.size(arrKinds) > 0
+        for i = array.size(arrKinds) - 1 to 0
+            if array.get(arrKinds, i) == wantKind
+                result := array.get(arrPrices, i)
+                break
+    result
 
 if not na(ph)
     kind = na(lastHigh) or ph > lastHigh ? "HH" : "LH"
-    lastHighKind := kind
     lastHigh := ph
+    array.push(highPrices, ph)
+    array.push(highKinds, kind)
     label.new(bar_index - pivotRight, ph, kind, style = label.style_label_down, color = color.new(color.teal, 0), textcolor = color.white, size = size.tiny)
 
 if not na(pl)
     kind = na(lastLow) or pl > lastLow ? "HL" : "LL"
-    lastLowKind := kind
     lastLow := pl
+    array.push(lowPrices, pl)
+    array.push(lowKinds, kind)
     label.new(bar_index - pivotRight, pl, kind, style = label.style_label_up, color = color.new(color.maroon, 0), textcolor = color.white, size = size.tiny)
 
-// nivel de referencia estructural vigente para el MSS (último HL / LH confirmados)
-float refLevelShort = lastLowKind == "HL" ? lastLow : na   // short usa el último HL
-float refLevelLong  = lastHighKind == "LH" ? lastHigh : na // long usa el último LH
+// nivel de referencia estructural vigente para el MSS: el último HL / LH
+// confirmados hasta ahora, busque donde busque en el historial (no solo si
+// el pivote más reciente resulta ser de ese tipo).
+float refLevelShort = f_lastOfKind(lowPrices, lowKinds, "HL")   // short usa el último HL
+float refLevelLong  = f_lastOfKind(highPrices, highKinds, "LH") // long usa el último LH
 
 // ---------------------------------------------------------------------------
 // Barrido de liquidez asiática + MSS por cierre
@@ -121,12 +144,20 @@ if not na(sessionAsianLow) and low < sessionAsianLow and not sweptLow
     refAtSweepLong := refLevelLong
     label.new(bar_index, low, "Sweep Low", style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = size.small)
 
-// Reset de los sweeps al empezar una nueva sesión asiática (nuevo día)
+// Reset de los sweeps y del historial de swings al empezar una nueva sesión
+// asiática (nuevo día) — igual que dax_model, que no arrastra estructura de
+// un día de trading al siguiente.
 if newAsianSession
     sweptHigh := false
     sweptLow := false
     refAtSweepShort := na
     refAtSweepLong := na
+    lastHigh := na
+    lastLow := na
+    array.clear(lowPrices)
+    array.clear(lowKinds)
+    array.clear(highPrices)
+    array.clear(highKinds)
 
 var bool mssShortDone = false
 var bool mssLongDone = false
@@ -144,19 +175,61 @@ if newAsianSession
     mssLongDone := false
 
 // ---------------------------------------------------------------------------
-// Fair Value Gaps (3 velas, sin solape vela1/vela3)
+// Fair Value Gaps (3 velas, sin solape vela1/vela3), con mitigación visual
 // ---------------------------------------------------------------------------
+var array<box>   fvgBoxes     = array.new<box>()
+var array<float> fvgZoneTop   = array.new<float>()
+var array<float> fvgZoneBot   = array.new<float>()
+var array<bool>  fvgTouchedTop = array.new<bool>()
+var array<bool>  fvgTouchedBot = array.new<bool>()
+
+// Actualiza los FVGs todavía abiertos con la vela actual y apaga los que
+// queden mitigados (según fvgFullFillMitigation: basta con tocar el hueco,
+// o hace falta rellenarlo por completo, es decir, haber tocado ambos
+// bordes en algún momento desde que se formó).
+if array.size(fvgBoxes) > 0
+    for i = array.size(fvgBoxes) - 1 to 0
+        bx = array.get(fvgBoxes, i)
+        zTop = array.get(fvgZoneTop, i)
+        zBot = array.get(fvgZoneBot, i)
+        touchedTop = array.get(fvgTouchedTop, i) or high >= zTop
+        touchedBot = array.get(fvgTouchedBot, i) or low <= zBot
+        mitigated = fvgFullFillMitigation ? (touchedTop and touchedBot) : (high >= zBot and low <= zTop)
+        if mitigated
+            box.set_right(bx, bar_index)
+            box.set_bgcolor(bx, color.new(color.gray, 95))
+            box.set_border_color(bx, color.new(color.gray, 80))
+            array.remove(fvgBoxes, i)
+            array.remove(fvgZoneTop, i)
+            array.remove(fvgZoneBot, i)
+            array.remove(fvgTouchedTop, i)
+            array.remove(fvgTouchedBot, i)
+        else
+            array.set(fvgTouchedTop, i, touchedTop)
+            array.set(fvgTouchedBot, i, touchedBot)
+            box.set_right(bx, bar_index + 20)
+
 if showFvg
     bearishGap = low[2] > high  // candle1.low > candle3.high (usando barra actual como candle3)
     bullishGap = high[2] < low  // candle1.high < candle3.low
 
     if bearishGap
-        box.new(bar_index - 2, low[2], bar_index + 20, high, border_color = color.new(color.red, 60), bgcolor = color.new(color.red, 85), extend = extend.none)
+        newBox = box.new(bar_index - 2, low[2], bar_index + 20, high, border_color = color.new(color.red, 60), bgcolor = color.new(color.red, 85), extend = extend.none)
+        array.push(fvgBoxes, newBox)
+        array.push(fvgZoneTop, low[2])
+        array.push(fvgZoneBot, high)
+        array.push(fvgTouchedTop, false)
+        array.push(fvgTouchedBot, false)
 
     if bullishGap
-        box.new(bar_index - 2, high[2], bar_index + 20, low, border_color = color.new(color.green, 60), bgcolor = color.new(color.green, 85), extend = extend.none)
+        newBox = box.new(bar_index - 2, high[2], bar_index + 20, low, border_color = color.new(color.green, 60), bgcolor = color.new(color.green, 85), extend = extend.none)
+        array.push(fvgBoxes, newBox)
+        array.push(fvgZoneTop, low)
+        array.push(fvgZoneBot, high[2])
+        array.push(fvgTouchedTop, false)
+        array.push(fvgTouchedBot, false)
 
-// Nota: la mitigación visual (apagar el hueco una vez relleno) y la
-// selección automática del FVG de entrada según la prioridad de
-// docs/STRATEGY_SPEC.md se dejan para verificación manual en esta primera
-// versión del indicador — el motor de decisión real vive en dax_model/.
+// Nota: esto solo dibuja y apaga huecos — la selección automática del FVG de
+// entrada según la prioridad de docs/STRATEGY_SPEC.md (primer FVG -> su 0.5
+// -> siguiente FVG) sigue siendo verificación manual en esta versión del
+// indicador; el motor de decisión real vive en dax_model/.
